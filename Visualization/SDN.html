@@ -1,0 +1,596 @@
+<!DOCTYPE html>
+<html><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8"><meta charset="utf-8">
+<title>SDN</title>
+<style>
+#chart1 {
+  width: 1300px;
+  height: 1000px;
+  border: solid 1px #ccc;
+  overflow: auto;
+}
+
+text {
+  font: 10px sans-serif;
+}
+
+.chartbackground {
+  fill: none;
+  pointer-events: all;
+}
+
+#chart1 .node {
+  stroke: #fff;
+  stroke-width: 1.5px;
+}
+
+#chart1 .link {
+  stroke: #999;
+  stroke-opacity: .6;
+  stroke-width: 1.5px;
+}
+
+.axis path, .axis line {
+  fill: none;
+  stroke: #fff;
+  shape-rendering: crispEdges;
+}
+
+.tooltipStyle {
+	display: none;
+	z-index: 500;
+	position: absolute;
+}
+
+.tooltipMessageStyleHostNode {
+  text-align: center;
+  text-weight: bold;
+  width: 150px;
+  height: 40px;
+  padding: 2px;
+  font: 12px sans-serif;
+  background: #DFD9D9;
+  border: 1px;
+  border-radius: 5px;
+  opacity: 0.8;
+}
+
+.tooltipMessageStyleSwitchNode {
+  text-align: center;
+  text-weight: bold;
+  width: 300px;
+  height: 300px;
+  padding: 2px;
+  font: 12px sans-serif;
+  background: #DFD9D9;
+  border: 1px;
+  border-radius: 5px;
+  opacity: 0.8;
+  overflow: auto
+}
+
+.tooltipMessageStyleSwitchNodeWithoutRules {
+  text-align: center;
+  text-weight: bold;
+  width: 300px;
+  height: 130px;
+  padding: 2px;
+  font: 12px sans-serif;
+  background: #DFD9D9;
+  border: 1px;
+  border-radius: 5px;
+  opacity: 0.8;
+  overflow: auto
+}
+
+.tooltipMessageStyleLink {
+  text-align: center;
+  text-weight: bold;
+  width: 320px;
+  height: 50px;
+  padding: 2px;
+  font: 12px sans-serif;
+  background: #DFD9D9;
+  border: 1px;
+  border-radius: 5px;
+  opacity: 0.8;
+}
+
+table.gridtable {
+	font-family: verdana,arial,sans-serif;
+	font-size:11px;
+	color:#333333;
+	border-width: 1px;
+	border-color: #666666;
+	border-collapse: collapse;
+}
+
+table.gridtable th {
+	border-width: 1px;
+	padding: 8px;
+	border-style: solid;
+	border-color: #666666;
+	background-color: #ffffff;
+}
+table.gridtable td {
+	border-width: 1px;
+	padding: 8px;
+	border-style: solid;
+	border-color: #666666;
+	background-color: #dedede;
+}
+
+</style>
+</head><body>
+<h1>Topology</h1>
+<form>
+	<label>Enable Auto Refresh</label>
+	<input type='checkbox' id='autoRefreshMode' checked >
+	</input>
+</form>	
+<p id="chart1">
+<script src="d3.v2.min.js"></script>
+<script src="fisheye.js"></script>
+<script src="jsondata.js"></script>
+<script>
+//checks for the auto refresh DOM element
+function isAutoRefreshEnabled() {		
+	// Get checkbox dom element
+	var autoRefreshCheckbox = document.getElementById('autoRefreshMode');
+	return autoRefreshCheckbox.checked;
+}	
+var tooltipTimeout;
+var data;
+var cachedNodes = {}; //primarily used in case only the data is updated
+//This method draws the topology, register mouse events.
+function drawChart() {
+  // clear and then append
+  d3.select('#chart1').select('svg').remove();  
+  cachedNodes = {};
+  var n = data.nodes.length;
+  data.nodes.forEach(function(switchNode) { 
+	  if (switchNode.group == 1) {
+		  var strSplit = (switchNode.ADDR).split("<br>");
+		  cachedNodes[strSplit[0]] = switchNode;
+	  }
+  });
+  var width = 1300,
+      height = 1000;
+       
+  var color = d3.scale.category20();
+
+  var fisheye = d3.fisheye.circular()    //gives a circular fisheye distortion
+      .radius(120);
+
+  var force = d3.layout.force()
+      .charge(-1000)
+      .linkDistance(40)
+      .size([width - 100, height - 100]);
+
+  var svg = d3.select("#chart1").append("svg")
+      .attr("width", width)
+      .attr("height", height);
+
+  svg.append("rect")
+      .attr("class", "chartbackground")
+      .attr("width", width)
+      .attr("height", height);
+
+force.nodes(data.nodes).links(data.links);
+
+data.nodes.forEach(function(d, i) { d.x = d.y = width / n * i; });
+
+var i; //decides how many iterations need to be done to get the topology right
+if(n < 100)
+i = 100;
+else
+i = n;
+
+//This iterates over the topology and try to get the nodes and links adjusted according to charge given
+//If we have more number of nodes then it takes a bit longer to converge
+force.start();
+while(i>0) { force.tick(); i--; }
+force.stop();
+
+var ox = 0, oy = 0;
+data.nodes.forEach(function(d) { ox += d.x, oy += d.y; });
+ox = ox / n - width / 2, oy = oy / n - height / 2;
+data.nodes.forEach(function(d) { d.x -= ox, d.y -= oy; });
+
+var link = svg.selectAll(".link")
+	.data(data.links)
+  .enter().append("line")
+	.attr("class", "link")
+	.attr("x1", function(d) { return d.source.x; })
+	.attr("y1", function(d) { return d.source.y; })
+	.attr("x2", function(d) { return d.target.x; })
+	.attr("y2", function(d) { return d.target.y; })
+	.on("mouseover", mouseoverHandlerLink)
+	.on("mouseout", mouseoutHandlerLink)
+	.style("stroke-width", function(d) { return Math.sqrt(d.value); });
+
+
+//node1 is an array of host nodes 
+var node1 = svg.selectAll(".node1")
+      .data(function() {
+		  var nodesArray = data.nodes;
+		  var returnArray = [];
+		  nodesArray.forEach(
+		  function(dataNode1) {
+			  if(dataNode1.group == 2)
+			    returnArray.push(dataNode1);
+			})
+			return returnArray;
+		  })
+    .enter().append("image")
+      .attr("class", "node1")
+      .attr("xlink:href", "host.png")
+      .attr("x", function(d) { return d.x - 20 ; })
+      .attr("y", function(d) { return d.y - 20; })
+      .attr("width", 30)
+      .attr("height", 30)
+      .on("mouseover", mouseoverHandlerNode)
+	  .on("mouseout", mouseoutHandlerNode)
+      .call(force.drag);
+
+//node2 is an array of swicth nodes
+var node2 = svg.selectAll(".node2")
+      .data(function() {
+		  var nodesArray = data.nodes;
+		  var returnArray = [];
+		  nodesArray.forEach(
+		  function(dataNode2) {
+			  if(dataNode2.group == 1)
+			    returnArray.push(dataNode2);
+			})
+			return returnArray;
+		  })
+    .enter().append("image")
+      .attr("class", "node2")
+      .attr("xlink:href", "switch.png")
+      .attr("x", function(d) { return d.x - 20; })
+      .attr("y", function(d) { return d.y - 20; })
+      .attr("width", 36)
+      .attr("height", 36)
+      .on("mouseover", mouseoverHandlerNode)
+	  .on("mouseout", mouseoutHandlerNode)
+      .call(force.drag);
+
+//mousemove event is registered
+svg.on("mousemove", function() {
+  fisheye.focus(d3.mouse(this));
+
+  node1.each(function(d) { d.fisheye = fisheye(d); })
+	  .attr("x", function(d) { return d.fisheye.x - 20; })
+	  .attr("y", function(d) { return d.fisheye.y - 25; })
+	  .style("fill", function(d) {
+		return color(d.group); })
+	  .attr("width", function(d) { return d.fisheye.z * 30; })
+	  .attr("height", function(d) { return d.fisheye.z * 30; });
+
+  node2.each(function(d) { d.fisheye = fisheye(d); })
+	  .attr("x", function(d) { return d.fisheye.x - 20; })
+	  .attr("y", function(d) { return d.fisheye.y - 25; })
+	  .style("fill", function(d) {
+		return color(d.group); })
+	  .attr("width", function(d) { return d.fisheye.z * 35; })
+	  .attr("height", function(d) { return d.fisheye.z * 35; });
+
+  link.attr("x1", function(d) { return d.source.fisheye.x; })
+	  .attr("y1", function(d) { return d.source.fisheye.y; })
+	  .attr("x2", function(d) { return d.target.fisheye.x; })
+	  .attr("y2", function(d) { return d.target.fisheye.y; });
+
+  var tooltipDiv = document.getElementById('tooltip');
+
+  tooltipDiv.onmouseover = function() {
+	  if (tooltipTimeout) {
+		window.clearTimeout(tooltipTimeout);
+	  }
+	  tooltipDiv.style.display = 'block';
+  };
+  tooltipDiv.onmouseout = function() {
+	tooltipTimeout = setTimeout(function() {
+		document.getElementById('tooltip').style.display = 'none';
+	},
+	500);
+  };
+});
+
+//mouseover handler for Link. This handler is called as the user hovers over the link
+function mouseoverHandlerLink(d) {
+	// get the coordinates
+	var tooltipDiv = document.getElementById('tooltip');
+	// Display the tooltip
+	if (tooltipTimeout) {
+		window.clearTimeout(tooltipTimeout);
+	}
+	//var d3mouse = d3.mouse(this);
+	tooltipDiv.style.display = 'block';
+	tooltipDiv.style.top = (d3.event.clientY + 5 + window.scrollY) + 'px';
+	tooltipDiv.style.left = (d3.event.clientX + 5) + 'px';
+	var tooltipDisp;
+	if(d.srcInfo) {
+	  tooltipDisp = d.srcInfo +'<br>' + d.targetInfo;
+	}
+	else
+	  tooltipDisp = d.targetInfo;
+	  tooltipDiv.innerHTML =
+				'<div class="tooltipMessageStyleLink">' +
+				'<p>' + tooltipDisp + '</p>'
+				'</div>';		
+}
+
+// Mouse out handler. This handler is called when the user hover away from the link
+function mouseoutHandlerLink(d) {
+	tooltipTimeout = setTimeout(function() {
+		document.getElementById('tooltip').style.display = 'none';
+	},
+	500);
+}
+
+// Mouse over handler. This handler is called when the user hover over the node
+function mouseoverHandlerNode(d) {
+	// get the coordinates
+	var tooltipDiv = document.getElementById('tooltip');
+	// Display the tooltip
+	if (tooltipTimeout) {
+		window.clearTimeout(tooltipTimeout);
+	}
+	tooltipDiv.style.display = 'block';
+	tooltipDiv.style.top = (d3.event.clientY + 5 + window.scrollY) + 'px';
+	tooltipDiv.style.left = (d3.event.clientX + 5) + 'px';
+	//group 2 refers to host nodes. We just need to display the basic info about the host.
+	if(d.group == 2) {
+		tooltipDiv.innerHTML =
+					'<div class="tooltipMessageStyleHostNode">' +
+					'<p>' + d.ADDR + '</p>'
+					'</div>';
+	}
+	
+	//group 1 refers to switch nodes. We need to display details in tabular format.			
+	if (d.group == 1) {
+		var strSplit = (d.ADDR).split("<br>");	
+		var substrindx;
+		var totalFields = 13;
+		var rulesTableflag = 0;
+		var tabRules = [], 
+		tabswitchID = [], 
+		tabruleID = [], 
+		tabswitchPort = [], 
+		tabsourceMAC = [], 
+		tabdestinationMAC = [], 
+		tabdlType = [],
+		tabsourceIP = [],
+		tabdestinationIP = [],
+		tabtransportProtocol = [],
+		tabsourcePort = [],
+		tabdestinationPort = [],
+		tabpriority = [],
+		tabaction = [];
+		
+		for(j = 0; j < strSplit.length; j++) {
+			if(strSplit[j].match(/Rules/g)) {
+				substrindx = j + 1;
+				rulesTableflag = 1;
+			}
+		}
+		
+		var substrstr = "";
+		for (j = 0; j< substrindx; j++) {
+			substrstr = substrstr + strSplit[j] + "<br>";
+	    }
+		
+		
+			var fieldSwitchID = "",
+			fieldManufacturer = "",
+			fieldHardwareType = "",
+			fieldSoftwareVersion = "",
+			fieldNumBuffers = "",
+			fieldNumTables = "",
+			fieldIp = "";
+			var doneflag = 0;
+			
+			for(j = 0; j < strSplit.length; j++) {
+			if(doneflag)
+				break;
+			if(strSplit[j].match(/Switch ID/g)) {
+				fieldSwitchID = fieldSwitchID + strSplit[j].slice((strSplit[j].indexOf(":")) + 1, strSplit[j].length);
+			}
+			if(strSplit[j].match(/Manufacturer/g)) {
+				fieldManufacturer = fieldManufacturer + strSplit[j].slice((strSplit[j].indexOf(":")) + 1, strSplit[j].length);
+				fieldManufacturer = fieldManufacturer.slice(1, fieldManufacturer.length);
+			}
+			if(strSplit[j].match(/Hardware Type/g)) {
+				fieldHardwareType = fieldHardwareType + strSplit[j].slice((strSplit[j].indexOf(":")) + 1, strSplit[j].length);
+			}
+			if(strSplit[j].match(/Software Version/g)) {
+				fieldSoftwareVersion = fieldSoftwareVersion + strSplit[j].slice((strSplit[j].indexOf(":")) + 1, strSplit[j].length);
+			}
+			if(strSplit[j].match(/Number of buffers/g)) {
+				fieldNumBuffers = fieldNumBuffers + strSplit[j].slice((strSplit[j].indexOf(":")) + 1, strSplit[j].length);
+			}
+			if(strSplit[j].match(/Number of Tables/g)) {
+				fieldNumTables = fieldNumTables + strSplit[j].slice((strSplit[j].indexOf(":")) + 1, strSplit[j].length);
+			}
+			if(strSplit[j].match(/inet Address/g)) {
+				fieldIp = fieldIp + strSplit[j].slice((strSplit[j].indexOf(":")) + 1, strSplit[j].length);
+				doneflag = 1;
+			}
+		}
+	
+			var innerHtmlString =
+				'<div class="tooltipMessageStyleSwitchNodeWithoutRules">' +
+				'<table class = gridtable>' + '<tr>' + '<td>' + "Switch ID" + '</td><td>' + 
+				fieldSwitchID + '</td></tr><tr><td>' + "Manufacturer" + '</td><td>' + 
+				fieldManufacturer + '</td>'+ '</tr><tr><td>' + "Hardware Type" + '</td><td>' +
+				fieldHardwareType + '</td></tr><tr><td>' + "Software Version" + '</td><td>' +
+				fieldSoftwareVersion + '</td></tr><tr><td>' + "Number of buffers" + '</td><td>' +
+				fieldNumBuffers + '</td></tr><tr><td>' + "Number of Tables" + '</td><td>' +
+				fieldNumTables + '</td></tr><tr><td>' + "inet Address" + '</td><td>' +
+				fieldIp + '</td></tr>';
+			if(rulesTableflag) {
+				innerHtmlString = innerHtmlString + '<tr><td>' + "Rules:" + '</td></tr></table>';
+			}
+			else {
+			innerHtmlString = innerHtmlString + '</table></div>';
+			tooltipDiv.innerHTML = innerHtmlString;
+		    }
+		
+		if(rulesTableflag)
+		{
+			var indx  = substrindx + 1;
+			var strRules = "";
+			for(j = indx; j < strSplit.length; j++) {
+				strRules = strRules + strSplit[j];
+			}
+			var instanceRules = strRules.match(/Rule/g);
+			var numRules = instanceRules.length;
+			var localindx = 0;
+			var fieldcount = 0;
+			for(j = substrindx; j < strSplit.length; j++) {
+				if(fieldcount == totalFields) {
+				localindx = localindx + 1;
+				fieldcount = 0;
+			}
+			tabRules[localindx] = "Rule " + (localindx + 1).toString();
+			if(strSplit[j].match(/Switch ID/g)) {
+				tabswitchID[localindx] = strSplit[j].slice((strSplit[j].indexOf(":")) + 1, strSplit[j].length);
+				fieldcount = fieldcount + 1;
+			}
+			
+			if(strSplit[j].match(/rule ID/g)) {
+				tabruleID[localindx] = strSplit[j].slice((strSplit[j].indexOf(":")) + 1, strSplit[j].length);
+				fieldcount = fieldcount + 1;
+			}
+			
+			if(strSplit[j].match(/Switch Port/g)) {
+				tabswitchPort[localindx] = strSplit[j].slice((strSplit[j].indexOf(":")) + 1, strSplit[j].length);
+				fieldcount = fieldcount + 1;
+			}
+			
+			if(strSplit[j].match(/Source MAC/g)) {
+				tabsourceMAC[localindx] = strSplit[j].slice((strSplit[j].indexOf(":")) + 1, strSplit[j].length);
+				fieldcount = fieldcount + 1;
+			}
+			
+			if(strSplit[j].match(/Destination MAC/g)) {
+				tabdestinationMAC[localindx] = strSplit[j].slice((strSplit[j].indexOf(":")) + 1, strSplit[j].length);
+				fieldcount = fieldcount + 1;
+			}
+			
+			if(strSplit[j].match(/DL-Type/g)) {
+				tabdlType[localindx] = strSplit[j].slice((strSplit[j].indexOf(":")) + 1, strSplit[j].length);
+				fieldcount = fieldcount + 1;
+			}
+			
+			if(strSplit[j].match(/Source IP/g)) {
+				tabsourceIP[localindx] = strSplit[j].slice((strSplit[j].indexOf(":")) + 1, strSplit[j].length);
+				fieldcount = fieldcount + 1;
+			}
+			
+			if(strSplit[j].match(/Destination IP/g)) {
+				tabdestinationIP[localindx] = strSplit[j].slice((strSplit[j].indexOf(":")) + 1, strSplit[j].length);
+				fieldcount = fieldcount + 1;
+			}
+			
+			if(strSplit[j].match(/Transport Protocol/g)) {
+				tabtransportProtocol[localindx] = strSplit[j].slice((strSplit[j].indexOf(":")) + 1, strSplit[j].length);
+				fieldcount = fieldcount + 1;
+			}
+			
+			if(strSplit[j].match(/Source Port/g)) {
+				tabsourcePort[localindx] = strSplit[j].slice((strSplit[j].indexOf(":")) + 1, strSplit[j].length);
+				fieldcount = fieldcount + 1;
+			}
+			
+			if(strSplit[j].match(/Destination Port/g)) {
+				tabdestinationPort[localindx] = strSplit[j].slice((strSplit[j].indexOf(":")) + 1, strSplit[j].length);
+				fieldcount = fieldcount + 1;
+			}
+		
+			if(strSplit[j].match(/Priority/g)) {
+				tabpriority[localindx] = strSplit[j].slice((strSplit[j].indexOf(":")) + 1, strSplit[j].length);
+				fieldcount = fieldcount + 1;
+			}
+			
+			if(strSplit[j].match(/Action/g)) {
+				tabaction[localindx] = strSplit[j].slice((strSplit[j].indexOf(":")) + 1, strSplit[j].length);
+				fieldcount = fieldcount + 1;
+			}
+		}
+			
+		if (strSplit.length > 1) {
+			innerHtmlString = innerHtmlString + '<table class="gridtable">';
+			var tabindx = 0;
+			innerHtmlString = innerHtmlString + '<tr>';
+			innerHtmlString =
+				innerHtmlString + '<th>' + "Rule Num" + '</th><th>' + 
+				    "Switch ID" + '</th><th>' + "rule ID" + '</th><th>' +
+				    "Switch Port" + '</th><th>' + "Source MAC" + '</th><th>' +
+				    "Destination MAC" + '</th><th>' + "DL-Type" + '</th><th>' + 
+				    "Source IP" + '</th><th>' + "Destination IP" + '</th><th>' +
+				    "Transport Protocol" + '</th><th>' + "Source Port" + '</th><th>' + 
+				    "Destination Port" + '</th><th>' + "Priority" + '</th><th>' + 
+				    "Action" + '</th>';
+				innerHtmlString = innerHtmlString +  '</tr>';
+			while(tabindx < numRules) {
+				innerHtmlString = innerHtmlString + '<tr>';
+				innerHtmlString = innerHtmlString + '<td>' +
+					tabRules[tabindx] + '</td><td>' +
+					tabswitchID[tabindx] + '</td><td>' + tabruleID[tabindx] + '</td><td>' +
+					tabswitchPort[tabindx] + '</td><td>' + tabsourceMAC[tabindx] + '</td><td>' +
+					tabdestinationMAC[tabindx] + '</td><td>' + tabdlType[tabindx] + '</td><td>' +
+					tabsourceIP[tabindx] + '</td><td>' + tabdestinationIP[tabindx] + '</td><td>' +
+					tabtransportProtocol[tabindx] + '</td><td>' + tabsourcePort[tabindx] + '</td><td>' +
+					tabdestinationPort[tabindx] + '</td><td>' + tabpriority[tabindx] + '</td><td>' +
+					tabaction[tabindx] + '</td>';
+				innerHtmlString = innerHtmlString +  '</tr>';
+				tabindx++;
+			}
+			innerHtmlString = innerHtmlString + '</table>';
+		}				
+		innerHtmlString = innerHtmlString + '</div>';				
+		tooltipDiv.innerHTML = innerHtmlString;
+	}
+	}			
+}
+
+// Mouse out handler. This handler gets called when user hover away from a node.
+function mouseoutHandlerNode(d) {
+	tooltipTimeout = setTimeout(function() {
+		document.getElementById('tooltip').style.display = 'none';
+	},
+	500);
+}
+};
+</script>
+<script>		
+	//This function checks if the autorefresh is enabled or not
+	//If enabled it updates the node and link data as well as update the topology
+	//Otherwise it updates the data only and specifically the ADDR attribute of every Node element
+	function updateView(inputData) {
+		var tempData = JSON.parse(inputData);
+		if (isAutoRefreshEnabled()) {
+			data = tempData;
+			drawChart();
+		} else {
+			// Update only the addr attribute
+			  tempData.nodes.forEach(function(switchNode) { 
+				  if (switchNode.group == 1) {
+					  var strSplit = (switchNode.ADDR).split("<br>");
+					  if (cachedNodes[strSplit[0]]) {						  
+						  cachedNodes[strSplit[0]].ADDR = switchNode.ADDR;
+					  }					  
+				  }
+			});			
+		}
+	}
+	function reloadJson() {
+		readJson(updateView);  //This method is defined in file jsondata.js. updateView is called back after loading local_data.json
+	}
+	var timerInterval = setInterval(reloadJson, 5000);  //This registers the function reloadJson. Which gets called after an interval.
+	reloadJson();		
+</script>
+<div id='tooltip' class='tooltipStyle'></div>
+<div id='detailInfo' class='tooltipStyle'></div>	
+</body></html>

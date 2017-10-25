@@ -1,0 +1,26 @@
+<html>
+<head>
+<script language="Javascript">
+function accessAppletMethod()
+{
+    visualFl.entrantFunction();
+    document.write("Executing...");
+}
+</script>
+
+<title>Testing</title></head>
+
+<h1>Javascript acess Applet method</h1>
+
+<!--<applet width=300 height=100 id="visual" code="edu/columbia/sdn/floodlight/visualization/RestQuery.class" archive="visual-applet.jar,httpclient-4.3.1.jar,httpmime-4.3.1.jar,httpcore-4.3.jar,org.json-20131017.jar">
+</applet>-->
+
+<object type="application/x-java-applet" width="100" height="100" name="visualFl">
+        <param name="code" value="edu/columbia/sdn/floodlight/visualization/RestQuery" />
+        <param name="archive" value="visual-applet.jar,httpclient-4.3.1.jar,httpmime-4.3.1.jar,httpcore-4.3.jar,org.json-20131017.jar" />
+ </object>
+
+<p><a href="javascript:accessAppletMethod();">Launch Example</a></p>
+
+</body>
+</html>
